@@ -1,33 +1,22 @@
-# Third-party notices
+# サードパーティの表記
 
 ## PLaMo 3 Translate
 
-This project is **Built with PLaMo** through the separate
-[local-jp-translate](https://github.com/marvelousu/local-jp-translate) API and
-the PLaMo 3 Translate model. This repository does **not** bundle model weights,
-llama.cpp, or the translation server.
+翻訳には [local-jp-translate](https://github.com/marvelousu/local-jp-translate) API を通じて PLaMo 3 Translate を利用しています（Built with PLaMo）。モデル重み、llama.cpp、翻訳サーバーは別途用意します。
 
-The upstream model and weights are distributed separately:
+モデルと重みは別に配布されています。
 
-- Model card and weights: <https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF>
-- PLaMo Community License (Japanese): <https://plamo.preferredai.jp/info/plamo-community-license-ja>
-- PLaMo Community License (English): <https://plamo.preferredai.jp/info/plamo-community-license-en>
-- Commercial use registration: <https://forms.gle/mTL8tBLrMYXKNZD56>
+- モデルカードと重み: <https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF>
+- PLaMo Community License（日本語）: <https://plamo.preferredai.jp/info/plamo-community-license-ja>
+- PLaMo Community License（英語）: <https://plamo.preferredai.jp/info/plamo-community-license-en>
+- 商用利用の登録: <https://forms.gle/mTL8tBLrMYXKNZD56>
 
-The **source code of this repository is MIT-licensed**. Model weights and the
-PLaMo Community License are separate; review the model terms and complete any
-required commercial registration yourself. This project does not accept model
-terms on your behalf and does not automate registration.
+ソースコードはMITライセンス、モデル重みはPLaMo Community Licenseで提供されます。個人・趣味・学術などの非商用利用は無償で、登録は不要です。商用利用にはPFNへの事前登録と売上規模の条件があり、必要な手続きは利用者自身で行います。条件の全文は上記のライセンスを参照してください。
 
 ## local-jp-translate
 
-`local-jp-translate` is a separate project that runs the local translation API.
-Its source code and notices are at
-<https://github.com/marvelousu/local-jp-translate>. Its README describes the
-model download and llama-server setup. This project only calls its loopback
-`POST /translate` endpoint.
+`local-jp-translate` は、ローカル翻訳APIを動かす別プロジェクトです。ソースコードと表記は <https://github.com/marvelousu/local-jp-translate> にあります。READMEにモデルのダウンロードとllama-serverの設定方法があります。このプロジェクトは、そのループバック `POST /translate` エンドポイントを呼ぶだけです。
 
-## Go standard library
+## Go標準ライブラリ
 
-The CLI uses only the Go standard library and is built with the Go toolchain.
-See <https://go.dev/LICENSE>.
+CLIはGo標準ライブラリだけを使い、Goツールチェーンでビルドします。<https://go.dev/LICENSE> を参照してください。

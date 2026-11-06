@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "files": {
+    "en": {
+      "entries": {
+        "menu.new_game": {
+          "source_hash": "0750ad8d8c3ec7df4bcb2edcd291e026a97a8d5e3d7f2f62632091bbc8efa323",
+          "target_hash": "28f9044138a54b95f198b450b2b02af43921f0d50450885875653e6443115f35",
+          "manual": true
+        },
+        "menu.quit": {
+          "source_hash": "8f26d438109c877447c80b84eb7e4ba1e6768ebcfc5408f0bc3c0725956bf039",
+          "target_hash": "b3eb37acb66ba4bbe8fb1ba296815daf194be94f5a5fb50dab2fb5e4a57ba29e",
+          "manual": true
+        },
+        "ui.greet": {
+          "source_hash": "095e497943fbd1deffb8efb124347723592d8681688de2f6cb6678c5c274fba0",
+          "target_hash": "48e1645a3bf4c08fc0e1819c5ba4813f9fb385f957556196a6aedb88721e2266",
+          "manual": true
+        },
+        "ui.potion": {
+          "source_hash": "3685f03ae070faf5c0835ed49a7df8827903aab2c9429df05b7f782026958408",
+          "target_hash": "f00a7be77c7ca9cf74b6a389851078044f7e670987e7d4c109642003d965f620",
+          "manual": true
+        }
+      }
+    }
+  }
+}

@@ -1,90 +1,70 @@
-# Godot l10n text check
+# Godotで訳文の表示を確認する
 
-Reusable Godot 4.x runtime addon and isolated demo for the `game-l10n-updater`
-display-check stage. It replaces approximate rune-length checks with measurements
-made from the actual theme font and Control rectangle after layout frames.
+`game-l10n-updater` の表示チェック用に、Godot 4.xで動く再利用可能なアドオンと独立したサンプルをまとめています。文字数の目安ではなく、テーマのフォントとControlの矩形をレイアウト後に測ります。
 
-Only explicitly opted-in nodes are checked:
+検査対象にするノードは明示的に指定します。
 
 ```gdscript
-node.set_meta("l10n_key", "ui.save")          # required
-node.set_meta("l10n_check_glyphs", true)      # optional, per-node glyph scan
+node.set_meta("l10n_key", "ui.save")          # 必須
+node.set_meta("l10n_check_glyphs", true)      # 任意。ノード単位のグリフ検査
 ```
 
-Supported control types are `Label`, plain `Button`, and `RichTextLabel`.
-An opted-in node of another type is reported as `unsupported_control`, not
-silently passed. Button subclasses that add icons or decoration (for example
-`CheckBox`, `CheckButton`, `OptionButton`, `MenuButton`) are reported as
-`unsupported_mode` until their extra layout is modeled.
+対応するControlは `Label`、通常の `Button`、`RichTextLabel` です。指定したノードがこれ以外なら `unsupported_control` として報告し、黙って通しません。アイコンや装飾を追加するButtonの派生（`CheckBox`、`CheckButton`、`OptionButton`、`MenuButton` など）は、追加レイアウトを測定していないため `unsupported_mode` として報告します。
 
-No external addon, downloaded art, or downloaded font is required. The demo uses
-Godot's default theme.
+外部アドオン、ダウンロードした画像、ダウンロードしたフォントは不要です。サンプルはGodotの既定テーマを使います。
 
-## Requirements and tested environment
+## 動作環境
 
-- Godot 4.3+ is the intended API level.
-- Verified locally with Godot **4.7.2.stable.mono** in headless mode on Windows.
-- No model download, API key, or network call is used by this subtree.
-- Replace `godot` in the commands below with your installed Godot executable.
+- 対象APIレベルはGodot 4.3以上です。
+- WindowsのヘッドレスモードでGodot **4.7.2.stable.mono** を使って確認しています。
+- このディレクトリはモデルのダウンロード、APIキー、ネットワーク呼び出しを使いません。
+- 以下のコマンドの `godot` は、インストールしたGodotの実行ファイルに置き換えてください。
 
-## Commands
+## コマンド
 
-Run from the repository root.
+リポジトリのルートで実行します。
 
-### 1. Import a fresh checkout
+### 1. 初回のインポート
 
-A fresh checkout needs an import pass before scene/SceneTree tests can resolve
-`class_name` registrations and the demo scene.
+新しくチェックアウトした状態では、シーンやSceneTreeのテストより先にインポートが必要です。`class_name` の登録とサンプルシーンを解決するために実行します。
 
 ```powershell
 godot --headless --path godot --import
 ```
 
-This creates `godot/.godot/`, which is ignored by the repository.
+`godot/.godot/` ができます。このディレクトリはリポジトリの管理対象外です。
 
-### 2. Automated tests
+### 2. 自動テスト
 
 ```powershell
 godot --headless --path godot --script res://tests/run_tests.gd
 ```
 
-The tests use explicit failure counts and exit 1 on any failure. They do not use
-`assert` as the sole gate. They cover:
+テストが失敗すると終了コード1を返します。確認項目は次のとおりです。
 
-- flat JSON and Godot CSV loading, locale selection, quoted commas, Unicode;
-- single-line Label overflow and a fitting string;
-- wrapped Label height handling (fit vs. too-short);
-- restoration of original node text, auto-translate mode, and
-  `TranslationServer` locale;
-- unsupported opted-in controls;
-- report schema, absolute report paths, and refusal to write under `res://`;
-- missing-glyph helper behavior;
-- the demo scene: exactly one intentionally clipped Japanese button and zero
-  issues for the fitting English strings.
+- フラットJSONとGodot CSVの読み込み、ロケール選択、引用符付きカンマ、Unicode
+- 1行のLabelの溢れと、収まる文字列
+- 折り返しLabelの高さ（収まる場合と不足する場合）
+- 元のノードテキスト、自動翻訳モード、`TranslationServer` のロケールの復元
+- 検査対象として指定した未対応Control
+- レポートのスキーマ、絶対パスの出力、`res://` への書き込み拒否
+- グリフ欠落ヘルパーの動作
+- サンプルシーン: 意図的に切れる日本語ボタンが1件、収まる英語文字列は問題0件
 
-Generated test files go in a unique child directory of `GAMEL10N_TEST_TMP`,
-`TEMP`, `TMPDIR`, or `/tmp`, and are removed by the test. Use `--log-file` to
-choose an explicit location for Godot logs.
+テストが生成するファイルは `GAMEL10N_TEST_TMP`、`TEMP`、`TMPDIR`、`/tmp` のいずれかの下に一意な子ディレクトリを作って置き、テスト終了時に削除します。Godotのログを残す場合は `--log-file` で出力先を指定してください。
 
-### 3. Headless runner (example acceptance check)
+### 3. ヘッドレスで表示レポートを出す
 
 ```powershell
 godot --headless --path godot --script res://tools/headless_check.gd -- `
   --report-path "$env:TEMP/l10n-demo-report.json"
 ```
 
-The default mode checks Japanese and English, writes a combined report, expects
-exactly one clipped issue (`demo.tight_action`, Japanese), expects the English
-strings to pass, and exits 1 for unexpected outcomes.
+既定では日本語と英語を検査し、統合レポートを書きます。サンプルに対して、日本語の `demo.tight_action` が1件だけ `clipped` になり、英語の文字列は通ることを期待します。結果が異なれば終了コード1を返します。
 
-`--check-glyphs` adds font-chain glyph findings to the report. On a headless
-default theme font, CJK may be reported as font-chain missing even though the
-system fallback renders it (visible in a real screenshot). The runner therefore
-excludes `missing_glyph` from its seeded layout gate when that opt-in flag is
-present; the report still contains the findings for review.
+`--check-glyphs` を付けると、フォントチェーンで見つからなかったグリフもレポートに加えます。ヘッドレスの既定テーマフォントでは、システムのフォールバックで描画されるCJKでも「フォントチェーンにグリフがない」と報告されることがあります。そのため、このオプションを付けた場合、サンプルのランナーは `missing_glyph` をレイアウト判定から外します。レポートには確認用として残ります。
 
-External catalog mode generates a report and does not enforce the seeded demo
-expectation, because an arbitrary catalog may not contain the demo keys:
+外部の翻訳データを指定した場合は、レポートを生成するだけで、サンプル固定の期待値は適用しません。任意の翻訳データにサンプルのキーが入っているとは限らないためです。
 
 ```powershell
 godot --headless --path godot --script res://tools/headless_check.gd -- `
@@ -92,41 +72,34 @@ godot --headless --path godot --script res://tools/headless_check.gd -- `
   --report-path "$env:TEMP/l10n-external-report.json"
 ```
 
-The external catalog must contain the demo keys if you want meaningful demo
-results. To check a different game scene, integrate the addon into that project
-as described below.
+サンプルの結果を確認したい場合は、外部の翻訳データにもサンプルのキーを含めてください。別のゲームシーンを検査する場合は、後述の手順でアドオンをそのプロジェクトへ組み込みます。
 
-### 4. Demo UI
+### 4. サンプルUI
 
 ```powershell
 godot --path godot
 ```
 
-The demo is a 1000x650 Control scene with:
+サンプルは1000x650のControlシーンです。
 
-- two language switching buttons (English / Japanese);
-- normal fitting labels and one intentionally too-narrow translated button;
-- a visible report summary and issue list;
-- stable node names and `metadata/l10n_key` opt-in metadata;
-- a visible PLaMo notice.
+- 英語 / 日本語を切り替えるボタンが2つ
+- 収まるラベルと、意図的に幅が足りない翻訳ボタン
+- レポートの要約とissue一覧
+- 安定したノード名と `metadata/l10n_key`
+- PLaMoの表記
 
-`Run display check` applies the current catalog strings, waits for layout, checks
-only the opted-in nodes, prints the report summary/list, and restores the current
-displayed text. The sample's Japanese and English strings are hand-written
-fixtures; they are **not** presented as model output.
+`Run display check` は現在の翻訳データを適用し、レイアウトを待ってから指定したノードだけを検査します。レポートの要約と一覧を表示した後、表示中のテキストを元に戻します。サンプルの日本語と英語は手書きの固定データで、モデルの出力ではありません。
 
-### 5. Demo check-only mode
+### 5. レポートだけを出力する
 
 ```powershell
 godot --headless --path godot -- --check-only `
   --report-path "$env:TEMP/l10n-demo-report.json"
 ```
 
-The demo quits after writing the report. Pass app arguments after `--`.
-Without `--report-path`, the report goes to
-`user://l10n_text_check/demo-report-<locale>.json`.
+サンプルはレポートを書いた後に終了します。アプリへの引数は `--` の後に渡します。`--report-path` を省略した場合、レポートは `user://l10n_text_check/demo-report-<locale>.json` に書かれます。
 
-External flat JSON:
+外部のフラットJSON:
 
 ```powershell
 godot --headless --path godot -- --check-only `
@@ -134,7 +107,7 @@ godot --headless --path godot -- --check-only `
   --report-path "$env:TEMP/l10n-external-report.json"
 ```
 
-External Godot CSV (the selected column is chosen by `--locale`):
+外部のGodot CSV（`--locale` で列を選ぶ）:
 
 ```powershell
 godot --headless --path godot -- --check-only `
@@ -142,10 +115,9 @@ godot --headless --path godot -- --check-only `
   --report-path "$env:TEMP/l10n-csv-report.json"
 ```
 
-### 6. Optional screenshot
+### 6. スクリーンショットを保存する
 
-Screenshots are real rendered frames only. Headless runs skip capture with a clear
-message and still write a valid JSON report.
+スクリーンショットは実際に描画したフレームだけを保存します。ヘッドレス実行では保存せず、その旨を表示したうえでJSONレポートは書きます。
 
 ```powershell
 godot --path godot -- --check-only `
@@ -153,10 +125,9 @@ godot --path godot -- --check-only `
   --capture-path "$env:TEMP/l10n-demo.png"
 ```
 
-A screenshot is optional evidence. It does not prove that all scenes or all
-controls were exercised.
+スクリーンショットは任意の記録です。
 
-## Report format
+## レポートの形式
 
 ```json
 {
@@ -174,30 +145,25 @@ controls were exercised.
 }
 ```
 
-- `schema_version` is always `1`.
-- `node_path` is relative to the scanned root; `.` means the root itself. Use
-  stable node names for stable paths.
-- `checked` is the number of opted-in node checks in this call, including nodes
-  that produced `missing_key` or `unsupported_control`. Call the checker once per
-  locale to check multiple languages.
-- `kind` values:
-  - `clipped` — text or content is clipped/trimmed by the control;
-  - `overflow` — text draws beyond the measured content rectangle;
-  - `missing_glyph` — font chain reports no glyph (opt-in);
-  - `missing_key` — the catalog has no entry for the opted-in key;
-  - `unsupported_control` — opted-in node type is not measured;
-  - `unsupported_mode` — a layout mode that cannot be verified safely, such as a
-    scrollable RichTextLabel whose content exceeds its rectangle.
-- `message` is human-readable and includes measured pixel values where useful.
+- `schema_version` は常に `1` です。
+- `node_path` は検査を開始したルートからの相対パスです。`.` はルート自身を表します。安定したパスにするため、ノード名は変更しないでください。
+- `checked` はこの呼び出しで検査対象にしたノード数です。`missing_key` や `unsupported_control` を出したノードも含みます。複数言語を検査する場合は、ロケールごとに1回ずつ実行してください。
+- `kind` の値:
+  - `clipped` — Controlによってテキストや内容が切り取られている
+  - `overflow` — テキストが測定した内容矩形の外に描画されている
+  - `missing_glyph` — フォントチェーンにグリフがない（任意の検査）
+  - `missing_key` — 指定したキーの翻訳データがない
+  - `unsupported_control` — 指定したノードの種類を測定していない
+  - `unsupported_mode` — スクロールするRichTextLabelの内容が矩形を超える場合など、安全に確認できないレイアウト
+- `message` は人が読める説明です。必要に応じて測定したピクセル値を含みます。
 
-The report is deliberately limited to the subtree and locale that were checked.
-Unvisited scenes are not certified.
+レポートの対象は、検査したサブツリーとロケールだけです。未確認のシーンは含みません。
 
-## Catalog formats
+## 翻訳データの形式
 
-### Flat target JSON
+### ターゲットJSON
 
-One locale per file; the locale label is supplied by `--locale` (default `en`):
+1ファイルにつき1ロケールです。ロケール名は `--locale` で指定します（既定は `en`）。
 
 ```json
 {
@@ -206,11 +172,11 @@ One locale per file; the locale label is supplied by `--locale` (default `en`):
 }
 ```
 
-Values must be strings. Nested locale maps are rejected with an error.
+値は文字列にしてください。ロケールを入れ子にしたマップはエラーになります。
 
 ### Godot CSV
 
-First header cell is `keys` (or `key`); following cells are locales:
+先頭のヘッダーセルは `keys`（または `key`）です。続くセルがロケールです。
 
 ```csv
 keys,en,ja
@@ -218,23 +184,14 @@ ui.title,Save complete,保存しました
 ui.action,"Continue, now","このまま続行する"
 ```
 
-Quoted commas are supported. Select a column with `--locale`. An unknown locale
-is an explicit error listing available columns.
+引用符付きのカンマを扱えます。列は `--locale` で選びます。存在しないロケールを指定すると、利用できる列を表示してエラーになります。
 
-## Addon integration
+## アドオンの組み込み
 
-1. Copy `godot/addons/l10n_text_check/` into the game's `addons/` directory.
-   Enabling the editor plugin is optional; the runtime `class_name` classes are
-   available after import.
-2. Opt in only the controls that belong to the localization display contract by
-   setting `metadata/l10n_key` on stable, named nodes. Do not opt in decorative
-   or purely dynamic report UI unless it is also part of the checked contract.
-3. Apply translations through the game's normal localization path. If you want
-   the helper to apply catalog strings directly, use `L10nCatalog` and
-   `L10nTextChecker.apply_catalog(root, catalog)`.
-4. After the relevant scene is in the tree and layout has settled, run the
-   checker. The checker itself waits `settle_frames` (default 2) and then restores
-   original text and auto-translate mode:
+1. `godot/addons/l10n_text_check/` をゲームの `addons/` にコピーします。エディタプラグインの有効化は任意です。インポート後、実行時の `class_name` クラスを利用できます。
+2. 検査対象にするControlだけに、安定した名前のノードで `metadata/l10n_key` を設定します。装飾用のUIや、動的に生成するだけのレポートUIは、検査対象に含めないでください。
+3. 翻訳はゲームの通常のローカライズ経路で適用します。ヘルパーから翻訳データを直接適用する場合は、`L10nCatalog` と `L10nTextChecker.apply_catalog(root, catalog)` を使います。
+4. 対象シーンをツリーに追加し、レイアウトが落ち着いてからチェッカーを実行します。チェッカーは `settle_frames`（既定2）だけ待ち、元のテキストと自動翻訳モードを復元します。
 
 ```gdscript
 var catalog := L10nCatalog.new()
@@ -258,86 +215,50 @@ if not write_error.is_empty():
     push_error(write_error)
 ```
 
-5. Import the JSON report into `game-l10n-updater` with the CLI's display-report
-   import command. Run the checker per scene and locale; do not infer coverage
-   from a screenshot or from one scene's report.
+5. 生成したJSONレポートは、CLIの `check -display-report` で読み込みます。シーンとロケールごとに実行し、スクリーンショットや1シーンのレポートから他のシーンの結果を推測しないでください。
 
-`L10nReport.write` refuses `res://` paths so generated reports cannot accidentally
-land in tracked source. Use `user://` or an absolute path outside the repository.
+`L10nReport.write` は `res://` への書き込みを拒否します。生成したレポートが管理対象のソースに紛れ込まないようにするためです。`user://` か、リポジトリ外の絶対パスを指定してください。
 
-## What is actually measured
+## 測定する内容
 
-- **Label:** `get_line_count()` / `get_visible_line_count()`, required height from
-  the effective font height plus line spacing, and either `Font.get_string_size`
-  (no wrapping) or `Font.get_multiline_string_size` at the available width
-  (wrapping). `clip_text` and `text_overrun_behavior` decide `clipped` vs.
-  `overflow`.
-- **Button:** effective theme font, stylebox content margins, icon width and
-  `h_separation`, then text width/height against the remaining content rectangle.
-  `clip_text` decides `clipped` vs. `overflow`.
-- **RichTextLabel:** content width/height against the content rectangle. If
-  scrolling is active and content exceeds the rectangle, the result is
-  `unsupported_mode` rather than a false pass.
-- **Missing glyph:** `Font.has_char` against the effective theme font and
-  `ThemeDB.fallback_font`. This is opt-in (global `check_glyphs` or per-node
-  `l10n_check_glyphs`) because system fallback fonts cannot be enumerated
-  reliably. The report says "font chain reports no glyph"; it does not claim that
-  a system fallback definitely failed to render.
-- **Preservation:** original node text, `auto_translate_mode`, and
-  `TranslationServer` locale are restored after each check. Switching languages
-  in the demo intentionally changes the displayed locale; the checker itself
-  does not leave a different locale behind.
+- **Label:** `get_line_count()` / `get_visible_line_count()`、実効フォントの高さと行間から求めた必要な高さ、`Font.get_string_size`（折り返しなし）または利用可能な幅での `Font.get_multiline_string_size`（折り返しあり）を使います。`clip_text` と `text_overrun_behavior` で `clipped` と `overflow` を分けます。
+- **Button:** 実効テーマフォント、styleboxの内容マージン、アイコン幅と `h_separation` を求め、残りの内容矩形に対してテキストの幅と高さを測ります。`clip_text` で `clipped` と `overflow` を分けます。
+- **RichTextLabel:** 内容の幅と高さを内容矩形と比べます。スクロールが有効で内容が矩形を超える場合は、誤って通さず `unsupported_mode` にします。
+- **グリフ欠落:** 実効テーマフォントと `ThemeDB.fallback_font` に対して `Font.has_char` を使います。システムのフォールバックフォントは確実に列挙できないため、全体の `check_glyphs` かノード単位の `l10n_check_glyphs` で明示した場合だけ検査します。レポートは「フォントチェーンにグリフがない」と書き、システムのフォールバックが描画できなかったと断定しません。
+- **復元:** 各検査の後、元のノードテキスト、`auto_translate_mode`、`TranslationServer` のロケールを戻します。サンプルで言語を切り替える操作は表示ロケールを意図的に変えますが、チェッカー自身は別のロケールを残しません。
 
-## Tested vs. unsupported coverage
+## 確認済みの範囲
 
-Verified in the automated tests and headless runner:
+自動テストとヘッドレスランナーで確認している内容です。
 
-- flat JSON and Godot CSV loading, locale switching, Unicode, quoted commas;
-- Label overflow and fitting strings;
-- wrapped Label with enough height and with too little height;
-- Button clipping caused by a deliberately narrow translated button;
-- RichTextLabel non-scrolling overflow and the scrollable `unsupported_mode`
-  result;
-- text/locale restoration;
-- explicit unsupported controls (`unsupported_control`);
-- report schema and absolute/user:// writing;
-- glyph helper detection for an uncovered private-use code point;
-- one deliberately clipped Japanese button and fitting English strings in the
-  demo scene.
+- フラットJSONとGodot CSVの読み込み、ロケール切り替え、Unicode、引用符付きカンマ
+- Labelの溢れと、収まる文字列
+- 折り返しLabelで高さが足りる場合と足りない場合
+- 意図的に狭い翻訳ボタンによるButtonの切れ
+- RichTextLabelの非スクロール時の溢れと、スクロール時の `unsupported_mode`
+- テキストとロケールの復元
+- 明示した未対応Control（`unsupported_control`）
+- レポートのスキーマと、絶対パス / `user://` への書き込み
+- 未収録の私用領域コードポイントに対するグリフ検査ヘルパー
+- サンプルシーンで、意図的に切れる日本語ボタンが1件、収まる英語文字列は問題なし
 
-Not covered / limitations:
+確認していない範囲は次のとおりです。
 
-- all scenes and all controls in a project — only the scanned subtree and locale
-  are checked;
-- nodes without `l10n_key` metadata;
-- custom-drawn text, `LineEdit`, `TextEdit`, `Label3D`, 3D worlds, and game HUDs
-  rendered outside this Control contract;
-- RichTextLabel glyph coverage, BBCode-aware per-span font selection, and full
-  scrollable-content verification (scrollable overflow is reported as
-  `unsupported_mode`);
-- Buttons using `expand_icon` (reported as `unsupported_mode`);
-- Buttons using `autowrap_mode` (reported as `unsupported_mode`);
-- Button subclasses that draw extra icons/decorations (`CheckBox`,
-  `CheckButton`, `OptionButton`, `MenuButton`, etc.) — reported as
-  `unsupported_mode` rather than measured with a false pass;
-- fonts or translations loaded after the check, animations, scene transitions,
-  and text changed by gameplay before/after the check;
-- hidden opted-in nodes are reported as `unsupported_mode` (not silently passed)
-  because they are not rendered;
-- system fallback rendering of missing glyphs;
-- treating a screenshot as evidence for unvisited scenes.
+- プロジェクト内の全シーンと全Control — 検査するのは指定したサブツリーとロケールだけです。
+- `l10n_key` がないノード
+- カスタム描画のテキスト、`LineEdit`、`TextEdit`、`Label3D`、3D世界、このControlの対象外で描画されるゲームHUD
+- RichTextLabelのグリフ網羅、BBCodeを考慮した区間ごとのフォント選択、スクロール内容の完全な検証（スクロール時の溢れは `unsupported_mode`）
+- `expand_icon` を使うButton（`unsupported_mode`）
+- `autowrap_mode` を使うButton（`unsupported_mode`）
+- 追加のアイコンや装飾を描くButtonの派生（`CheckBox`、`CheckButton`、`OptionButton`、`MenuButton` など）— 誤って通さず `unsupported_mode` として報告します。
+- 検査後に読み込まれるフォントや翻訳、アニメーション、シーン遷移、検査の前後にゲーム処理で変わるテキスト
+- 非表示の検査対象ノード — 描画されないため `unsupported_mode` として報告します。
+- グリフ欠落時のシステムフォールバック描画
 
-## PLaMo notice and licensing
+## PLaMoの表記とライセンス
 
-The sample strings in `demo/translations.csv` and the demo JSON files are
-hand-written fixtures. They are not PLaMo model output and should not be cited as
-model output.
+`demo/translations.csv` とサンプルのJSONにある文字列は手書きの固定データです。PLaMoモデルの出力ではないため、モデル出力として引用しないでください。
 
-Real catalogs used with the parent workflow may contain translations produced by
-the PLaMo model. Follow the PLaMo model terms and the notices/terms linked by the
-parent project documentation (see the repository's `THIRD_PARTY_NOTICES.md` and
-`README.md`), and do not imply that this demo generated them. This subtree makes
-no network or model calls.
+実際の翻訳データには、PLaMoモデルが生成した訳文が含まれる場合があります。PLaMoモデルの条件と、親プロジェクトの文書（リポジトリの `THIRD_PARTY_NOTICES.md` と `README.md`）からリンクされている表記・条件に従ってください。このサンプルがそれらを生成したように見せないでください。このディレクトリはネットワーク呼び出しもモデル呼び出しもしません。
 
-The addon and demo are provided under the repository's MIT license. No external
-downloaded art or fonts are included.
+アドオンとサンプルはリポジトリのMITライセンスで提供されます。外部からダウンロードした画像やフォントは含みません。
