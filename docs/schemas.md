@@ -42,7 +42,7 @@
 | `api.style` | いいえ | `default` / `polite` / `plain`（空も可）。ターゲットが `ja` のときだけ API に送り、それ以外では送らない |
 | `api.timeout_seconds` | いいえ | 0 または省略時は 210。1〜3600。サーバー側の既定は 180 秒 |
 | `api.max_tokens` | いいえ | 0 または省略時は 512。負数は不可 |
-| `glossary` | いいえ | `source`/`target` は必須。`locale` が空なら全ロケール、指定時はそのロケールだけ |
+| `glossary` | いいえ | `source`/`target` は必須。`locale` が空なら全ロケール、指定時は設定したロケール名と完全一致するものだけ |
 
 言語コードはファイル名に使える `[A-Za-z0-9][A-Za-z0-9_-]*`（最大 64）です。
 ロケール名と `targets/<locale>.json` のファイル名は設定した表記のまま保持します。

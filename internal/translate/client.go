@@ -133,10 +133,12 @@ func NewWithHTTPClient(baseURL string, httpClient *http.Client) (*Client, error)
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
+	local := *httpClient
+	local.CheckRedirect = loopbackRedirect
 	return &Client{
 		endpoint:          endpoint,
 		languagesEndpoint: strings.TrimSuffix(endpoint, "/translate") + "/languages",
-		http:              httpClient,
+		http:              &local,
 	}, nil
 }
 
@@ -262,9 +264,9 @@ func parseHTTPError(status int, raw []byte) error {
 	message := doc.Error.Message
 	if message == "" {
 		message = strings.TrimSpace(string(raw))
-		if len(message) > 300 {
-			message = message[:300] + "..."
-		}
+	}
+	if runes := []rune(message); len(runes) > 300 {
+		message = string(runes[:300]) + "..."
 	}
 	return &APIError{
 		Kind:    "http",

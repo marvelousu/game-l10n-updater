@@ -4,6 +4,7 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -28,8 +29,8 @@ type Translator interface {
 }
 
 // LanguageChecker is an optional capability implemented by the concrete API
-// client. Sync uses it once before translating so unsupported configured
-// locales fail early. Injected test translators do not need to implement it.
+// client. Sync checks the locales needing translation in this run before any
+// inference. Injected test translators do not need to implement it.
 type LanguageChecker interface {
 	SupportedLanguages(ctx context.Context) ([]string, error)
 }
@@ -104,8 +105,10 @@ func Run(ctx context.Context, configPath string, api Translator, opts Options) (
 		return nil, err
 	}
 	defer func() {
-		if releaseErr := lock.Release(); releaseErr != nil && runErr == nil {
-			runErr = releaseErr
+		if releaseErr := lock.Release(); releaseErr != nil {
+			runErr = errors.Join(runErr, releaseErr)
+			report.Error = runErr.Error()
+			report, runErr = finish(report, opts, runErr)
 		}
 	}()
 
@@ -194,6 +197,7 @@ func runOnProject(ctx context.Context, p *project.Project, api Translator, opts 
 			}
 			if issue := validate.MaxLengthIssue(decision.Entry, translated, decision.Locale); issue != nil {
 				warnings = append(warnings, *issue)
+				report.Warnings = warnings
 			}
 			newTargets[decision.Locale][decision.Key] = translated
 			es := newState.Locale(decision.Locale).Entries[decision.Key]
