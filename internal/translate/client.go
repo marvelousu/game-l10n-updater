@@ -14,18 +14,24 @@ import (
 	"github.com/marvelousu/game-l10n-updater/internal/netx"
 )
 
+// DefaultTimeout is the default HTTP timeout. It is longer than the
+// translation server's 180 second default so a slow model response is not
+// cut off by the client first.
+const DefaultTimeout = 210 * time.Second
+
 // GlossaryEntry is one terminology pair sent to the API.
 type GlossaryEntry struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
 }
 
-// Request is the public /translate request body.
+// Request is the public /translate request body. Style is omitted from the
+// wire when empty and is only set by sync for Japanese targets.
 type Request struct {
 	Text      string          `json:"text"`
 	Source    string          `json:"source"`
 	Target    string          `json:"target"`
-	Style     string          `json:"style"`
+	Style     string          `json:"style,omitempty"`
 	Glossary  []GlossaryEntry `json:"glossary"`
 	Context   string          `json:"context"`
 	MaxTokens int             `json:"max_tokens"`
@@ -73,17 +79,36 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
+// CanonicalLanguage returns the language code used on the API wire. Locale
+// keys and file names keep their configured spelling; only the request body is
+// normalized here. Matching is case-insensitive, underscores become hyphens,
+// and only the Chinese script variants are remapped. Other regional variants
+// such as pt-BR are left alone so the /languages preflight can reject them.
+func CanonicalLanguage(locale string) string {
+	code := strings.ToLower(strings.TrimSpace(locale))
+	code = strings.ReplaceAll(code, "_", "-")
+	switch code {
+	case "zh-cn", "zh-sg":
+		return "zh-hans"
+	case "zh-tw", "zh-hk":
+		return "zh-hant"
+	default:
+		return code
+	}
+}
+
 // Client calls one configured /translate endpoint.
 type Client struct {
-	endpoint string
-	http     *http.Client
+	endpoint          string
+	languagesEndpoint string
+	http              *http.Client
 }
 
 // New validates baseURL and creates a client. Only loopback endpoints are
 // accepted, and redirects to non-loopback hosts are rejected.
 func New(baseURL string, timeout time.Duration) (*Client, error) {
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = DefaultTimeout
 	}
 	hc := &http.Client{Timeout: timeout, CheckRedirect: loopbackRedirect}
 	return NewWithHTTPClient(baseURL, hc)
@@ -106,9 +131,13 @@ func NewWithHTTPClient(baseURL string, httpClient *http.Client) (*Client, error)
 		return nil, err
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 120 * time.Second}
+		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
-	return &Client{endpoint: endpoint, http: httpClient}, nil
+	return &Client{
+		endpoint:          endpoint,
+		languagesEndpoint: strings.TrimSuffix(endpoint, "/translate") + "/languages",
+		http:              httpClient,
+	}, nil
 }
 
 // Endpoint returns the resolved POST URL.
@@ -116,6 +145,11 @@ func (c *Client) Endpoint() string { return c.endpoint }
 
 // Translate sends one non-streaming request and returns translated_text.
 func (c *Client) Translate(ctx context.Context, req Request) (string, error) {
+	req.Source = CanonicalLanguage(req.Source)
+	req.Target = CanonicalLanguage(req.Target)
+	if req.Target != "ja" {
+		req.Style = ""
+	}
 	if req.Glossary == nil {
 		req.Glossary = []GlossaryEntry{}
 	}
@@ -164,6 +198,57 @@ func (c *Client) Translate(ctx context.Context, req Request) (string, error) {
 		return "", &APIError{Kind: "invalid_translation", Status: resp.StatusCode, Message: "translated_text contains NUL"}
 	}
 	return out.TranslatedText, nil
+}
+
+// SupportedLanguages fetches GET /languages once through the same client and
+// returns the canonical codes advertised by the translation service.
+func (c *Client) SupportedLanguages(ctx context.Context) ([]string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.languagesEndpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build languages request: %w", err)
+	}
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, &APIError{Kind: "network", Err: err}
+	}
+	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	if readErr != nil {
+		return nil, &APIError{Kind: "read_response", Status: resp.StatusCode, Err: readErr}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, parseHTTPError(resp.StatusCode, raw)
+	}
+
+	var doc struct {
+		Languages []struct {
+			Code string `json:"code"`
+		} `json:"languages"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&doc); err != nil {
+		return nil, &APIError{Kind: "malformed_response", Status: resp.StatusCode, Err: err}
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, &APIError{Kind: "malformed_response", Status: resp.StatusCode, Message: "unexpected trailing JSON value"}
+		}
+		return nil, &APIError{Kind: "malformed_response", Status: resp.StatusCode, Err: err}
+	}
+	codes := make([]string, 0, len(doc.Languages))
+	for _, item := range doc.Languages {
+		code := CanonicalLanguage(item.Code)
+		if code != "" {
+			codes = append(codes, code)
+		}
+	}
+	if len(codes) == 0 {
+		return nil, &APIError{Kind: "malformed_response", Status: resp.StatusCode, Message: "languages is empty"}
+	}
+	return codes, nil
 }
 
 func parseHTTPError(status int, raw []byte) error {

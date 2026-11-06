@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/marvelousu/game-l10n-updater/internal/jsonx"
 	"github.com/marvelousu/game-l10n-updater/internal/model"
 	"github.com/marvelousu/game-l10n-updater/internal/netx"
 	"github.com/marvelousu/game-l10n-updater/internal/pathx"
 )
+
+// DefaultTimeoutSeconds is the default API timeout. The translation server's
+// own default is 180 seconds, so the client waits a little longer.
+const DefaultTimeoutSeconds = 210
 
 // Loaded is a validated config plus the absolute project root.
 type Loaded struct {
@@ -36,7 +41,7 @@ func Default(sourceLanguage string, languages []string) model.Config {
 		API: model.APIConfig{
 			URL:            "http://127.0.0.1:8787",
 			Style:          "",
-			TimeoutSeconds: 120,
+			TimeoutSeconds: DefaultTimeoutSeconds,
 			MaxTokens:      512,
 		},
 	}
@@ -57,7 +62,7 @@ func Load(path string) (*Loaded, error) {
 		return nil, fmt.Errorf("parse config %s: %w", abs, err)
 	}
 	if cfg.API.TimeoutSeconds == 0 {
-		cfg.API.TimeoutSeconds = 120
+		cfg.API.TimeoutSeconds = DefaultTimeoutSeconds
 	}
 	if cfg.API.MaxTokens == 0 {
 		cfg.API.MaxTokens = 512
@@ -103,6 +108,11 @@ func Validate(cfg model.Config) error {
 	}
 	if cfg.API.TimeoutSeconds < 1 || cfg.API.TimeoutSeconds > 3600 {
 		return fmt.Errorf("api.timeout_seconds must be between 1 and 3600")
+	}
+	switch strings.TrimSpace(cfg.API.Style) {
+	case "", "default", "polite", "plain":
+	default:
+		return fmt.Errorf("api.style must be empty, default, polite, or plain")
 	}
 	if cfg.API.MaxTokens < 0 {
 		return fmt.Errorf("api.max_tokens must not be negative")

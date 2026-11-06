@@ -77,8 +77,11 @@ gamel10n import-csv -csv review.csv -source-language ja \
 実際のピクセル溢れは Godot 表示レポートの `overflow` などとして別に取り込みます。
 `<b>` などのタグも現状はルーン数に含みます。
 
-壊れた翻訳は `sync` では適用されません。`check` は既存の翻訳データの壊れを報告する
-だけで、ファイルを書き換えません。
+壊れた翻訳は `sync` では適用されません。`sync` は1件でも検査に通らないと全体を
+更新しないため、`targets/<locale>.json` の該当キーに訳文を手動で記載し、
+`gamel10n approve -config gamel10n.json -locale <locale> -key <key>` で承認してから
+もう一度 `sync` を実行してください。承認したキーは保持され、残りのキーだけが翻訳されます。
+`check` は既存の翻訳データの壊れを報告するだけで、ファイルを書き換えません。
 
 ## Godot 連携（任意）
 

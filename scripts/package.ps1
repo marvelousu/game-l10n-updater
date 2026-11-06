@@ -6,6 +6,7 @@ $taskOldOS, $taskOldArch, $taskOldCGO = $env:GOOS, $env:GOARCH, $env:CGO_ENABLED
 try {
     New-Item -ItemType Directory -Force -Path $Output | Out-Null
     $taskOutput = (Resolve-Path -LiteralPath $Output).Path
+    $taskArchives = @()
     $taskTargets = if ($All) { @('windows/amd64','linux/amd64','darwin/arm64') } else { @((& $Go env GOOS) + '/' + (& $Go env GOARCH)) }
     foreach ($taskTarget in $taskTargets) {
         $env:GOOS, $env:GOARCH = $taskTarget.Split('/')
@@ -33,14 +34,26 @@ try {
                 }
             }
             if ($env:GOOS -eq 'windows') {
-                Compress-Archive -LiteralPath $taskBundle -DestinationPath (Join-Path $taskOutput ($taskName+'.zip')) -Force
+                $taskArchive = Join-Path $taskOutput ($taskName + '.zip')
+                Compress-Archive -LiteralPath $taskBundle -DestinationPath $taskArchive -Force
             } else {
-                & python (Join-Path $PSScriptRoot 'package_tar.py') $taskBundle (Join-Path $taskOutput ($taskName+'.tar.gz'))
+                $taskArchive = Join-Path $taskOutput ($taskName + '.tar.gz')
+                & python (Join-Path $PSScriptRoot 'package_tar.py') $taskBundle $taskArchive
                 if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
             }
+            $taskArchives += $taskArchive
             Write-Host "Packaged $taskTarget"
         } finally { Remove-Item -LiteralPath $taskResolvedStage -Recurse -Force }
     }
+
+    $taskSumFile = Join-Path $taskOutput 'SHA256SUMS.txt'
+    $taskSumLines = foreach ($taskArchivePath in $taskArchives) {
+        $taskHash = (Get-FileHash -LiteralPath $taskArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$taskHash  $(Split-Path -Leaf $taskArchivePath)"
+    }
+    $taskSumText = ($taskSumLines -join "`n") + "`n"
+    [System.IO.File]::WriteAllText($taskSumFile, $taskSumText, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "wrote $taskSumFile"
 } finally {
     $env:GOOS, $env:GOARCH, $env:CGO_ENABLED = $taskOldOS, $taskOldArch, $taskOldCGO
     Pop-Location

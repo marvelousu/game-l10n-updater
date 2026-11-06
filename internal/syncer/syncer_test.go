@@ -26,12 +26,28 @@ type fakeAPI struct {
 	calls      []translate.Request
 	handle     func(req translate.Request) (int, string)
 	configPath string
+	languages  []string
 }
 
 func newFakeAPI(t *testing.T, handle func(req translate.Request) (int, string)) *fakeAPI {
 	t.Helper()
 	fake := &fakeAPI{handle: handle}
 	fake.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			if r.Method != http.MethodGet {
+				t.Errorf("languages method = %s", r.Method)
+			}
+			codes := fake.languages
+			if len(codes) == 0 {
+				codes = []string{"ja", "en", "fr", "zh-hans", "zh-hant", "ko"}
+			}
+			items := make([]map[string]string, 0, len(codes))
+			for _, code := range codes {
+				items = append(items, map[string]string{"code": code})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"languages": items})
+			return
+		}
 		var req translate.Request
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode request: %v", err)
@@ -51,20 +67,25 @@ func translateOK(req translate.Request) (int, string) {
 }
 
 type projectSetup struct {
-	languages  []string
-	source     []model.SourceEntry
-	targets    map[string]map[string]string
-	state      *model.State
-	writeState bool
-	style      string
-	maxTokens  int
-	glossary   []model.GlossaryTerm
+	languages      []string
+	sourceLanguage string
+	source         []model.SourceEntry
+	targets        map[string]map[string]string
+	state          *model.State
+	writeState     bool
+	style          string
+	maxTokens      int
+	glossary       []model.GlossaryTerm
 }
 
 func writeProject(t *testing.T, apiURL string, setup projectSetup) string {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Default("ja", setup.languages)
+	sourceLanguage := setup.sourceLanguage
+	if sourceLanguage == "" {
+		sourceLanguage = "ja"
+	}
+	cfg := config.Default(sourceLanguage, setup.languages)
 	cfg.API.URL = apiURL
 	cfg.API.Style = setup.style
 	if setup.maxTokens != 0 {
@@ -533,7 +554,248 @@ func TestDeletedKeysPreservedByDefaultAndPrunedExplicitly(t *testing.T) {
 	}
 }
 
-func TestGlossaryContextAndStyleReachAPI(t *testing.T) {
+type stalledTranslator struct {
+	started chan<- struct{}
+}
+
+func (s stalledTranslator) Translate(ctx context.Context, req translate.Request) (string, error) {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+type cancelingTranslator struct {
+	cancel context.CancelFunc
+}
+
+func (c cancelingTranslator) Translate(ctx context.Context, req translate.Request) (string, error) {
+	c.cancel()
+	return "EN:" + req.Text, nil
+}
+
+func TestStyleOnlySentForJapaneseTargets(t *testing.T) {
+	fake := newFakeAPI(t, translateOK)
+	configPath := writeProject(t, fake.server.URL, projectSetup{
+		languages:      []string{"en", "ja"},
+		sourceLanguage: "fr",
+		source:         []model.SourceEntry{{Key: "a", Text: "A"}},
+		targets:        map[string]map[string]string{"en": {}, "ja": {}},
+		style:          "polite",
+	})
+	client, err := translate.New(fake.server.URL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), configPath, client, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("calls = %d", len(fake.calls))
+	}
+	styles := map[string]string{}
+	for _, call := range fake.calls {
+		if call.Source != "fr" {
+			t.Errorf("source language changed: %q", call.Source)
+		}
+		styles[call.Target] = call.Style
+	}
+	if styles["en"] != "" {
+		t.Errorf("English target sent style %q", styles["en"])
+	}
+	if styles["ja"] != "polite" {
+		t.Errorf("Japanese target style = %q", styles["ja"])
+	}
+}
+
+func TestUnsupportedLanguageFailsBeforeTranslation(t *testing.T) {
+	fake := newFakeAPI(t, translateOK)
+	fake.languages = []string{"ja", "en"}
+	st := model.NewState()
+	st.Locale("en").Entries["keep"] = &model.EntryState{SourceHash: hashx.Text("Keep"), TargetHash: hashx.Text("Keep")}
+	configPath := writeProject(t, fake.server.URL, projectSetup{
+		languages: []string{"en", "pt-BR"},
+		source:    []model.SourceEntry{{Key: "a", Text: "A"}, {Key: "keep", Text: "Keep"}},
+		targets:   map[string]map[string]string{"en": {"keep": "Keep"}, "pt-BR": {}},
+		state:     st, writeState: true,
+	})
+	root := filepath.Dir(configPath)
+	targetBefore := readFile(t, filepath.Join(root, "targets", "en.json"))
+	client, err := translate.New(fake.server.URL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Run(context.Background(), configPath, client, Options{})
+	if err == nil {
+		t.Fatal("unsupported target accepted")
+	}
+	if !strings.Contains(err.Error(), `"pt-BR"`) || !strings.Contains(err.Error(), `"pt-br"`) {
+		t.Fatalf("error lacks configured and canonical locale: %v", err)
+	}
+	if report == nil || report.Status != "failed" {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("translation called before language check: %#v", fake.calls)
+	}
+	if string(readFile(t, filepath.Join(root, "targets", "en.json"))) != string(targetBefore) {
+		t.Fatal("target changed after unsupported language")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+}
+
+func TestManualUnsupportedLocaleDoesNotBlockSupportedTranslation(t *testing.T) {
+	fake := newFakeAPI(t, translateOK)
+	fake.languages = []string{"ja", "en"}
+	configPath := writeProject(t, fake.server.URL, projectSetup{
+		languages: []string{"en", "pt-BR"},
+		source:    []model.SourceEntry{{Key: "a", Text: "A"}},
+		targets:   map[string]map[string]string{"en": {}, "pt-BR": {"a": "Manual Portuguese"}},
+	})
+	client, err := translate.New(fake.server.URL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), configPath, client, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.calls) != 1 || fake.calls[0].Target != "en" {
+		t.Fatalf("calls: %#v", fake.calls)
+	}
+	if !strings.Contains(string(readFile(t, filepath.Join(filepath.Dir(configPath), "targets", "pt-BR.json"))), "Manual Portuguese") {
+		t.Fatal("manual locale lost")
+	}
+}
+
+func TestCancelDuringStalledTranslationPreservesFilesAndLock(t *testing.T) {
+	fake := newFakeAPI(t, translateOK)
+	st := model.NewState()
+	st.Locale("en").Entries["keep"] = &model.EntryState{SourceHash: hashx.Text("Keep"), TargetHash: hashx.Text("Keep")}
+	configPath := writeProject(t, fake.server.URL, projectSetup{
+		languages: []string{"en"},
+		source:    []model.SourceEntry{{Key: "a", Text: "A"}, {Key: "keep", Text: "Keep"}},
+		targets:   map[string]map[string]string{"en": {"keep": "Keep"}},
+		state:     st, writeState: true,
+	})
+	root := filepath.Dir(configPath)
+	targetBefore := readFile(t, filepath.Join(root, "targets", "en.json"))
+	stateBefore := readFile(t, filepath.Join(root, "state", "gamel10n-state.json"))
+
+	started := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(ctx, configPath, stalledTranslator{started: started}, Options{})
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("translation did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("canceled sync succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled sync did not return")
+	}
+	if string(readFile(t, filepath.Join(root, "targets", "en.json"))) != string(targetBefore) {
+		t.Fatal("target changed after cancellation")
+	}
+	if string(readFile(t, filepath.Join(root, "state", "gamel10n-state.json"))) != string(stateBefore) {
+		t.Fatal("state changed after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+
+	client, err := translate.New(fake.server.URL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Run(context.Background(), configPath, client, Options{})
+	if err != nil {
+		t.Fatalf("second sync failed: %v", err)
+	}
+	if report.Status != "success" {
+		t.Fatalf("second sync status = %s", report.Status)
+	}
+	if readTarget(t, configPath, "en")["a"] != "EN:A" {
+		t.Fatal("second sync did not translate")
+	}
+}
+
+func TestCanceledContextAbortsWithoutTranslationBeforeWrite(t *testing.T) {
+	fake := newFakeAPI(t, translateOK)
+	configPath := writeProject(t, fake.server.URL, projectSetup{
+		languages: []string{"en"},
+		source:    []model.SourceEntry{{Key: "k", Text: "Hello"}},
+		targets:   map[string]map[string]string{"en": {"k": "Konnichiwa human"}},
+	})
+	root := filepath.Dir(configPath)
+	targetBefore := readFile(t, filepath.Join(root, "targets", "en.json"))
+	client, err := translate.New(fake.server.URL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	report, err := Run(ctx, configPath, client, Options{})
+	if err == nil || !strings.Contains(err.Error(), "sync canceled") {
+		t.Fatalf("want cancellation error, got %v", err)
+	}
+	if report == nil || report.Status != "failed" {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("API called after cancellation: %#v", fake.calls)
+	}
+	if string(readFile(t, filepath.Join(root, "targets", "en.json"))) != string(targetBefore) {
+		t.Fatal("target changed after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(root, "state", "gamel10n-state.json")); !os.IsNotExist(err) {
+		t.Fatal("state was written after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+}
+
+func TestCancellationAfterTranslationAbortsBeforeCommit(t *testing.T) {
+	configPath := writeProject(t, "http://127.0.0.1:1", projectSetup{
+		languages: []string{"en"},
+		source:    []model.SourceEntry{{Key: "a", Text: "A"}},
+		targets:   map[string]map[string]string{"en": {}},
+	})
+	root := filepath.Dir(configPath)
+	targetBefore := readFile(t, filepath.Join(root, "targets", "en.json"))
+	ctx, cancel := context.WithCancel(context.Background())
+	report, err := Run(ctx, configPath, cancelingTranslator{cancel: cancel}, Options{})
+	if err == nil || !strings.Contains(err.Error(), "sync canceled") {
+		t.Fatalf("want cancellation error, got %v", err)
+	}
+	if report == nil || report.Status != "failed" {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	if string(readFile(t, filepath.Join(root, "targets", "en.json"))) != string(targetBefore) {
+		t.Fatal("target committed after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(root, "state", "gamel10n-state.json")); !os.IsNotExist(err) {
+		t.Fatal("state committed after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+}
+
+func TestGlossaryContextAndMaxTokensReachAPI(t *testing.T) {
 	fake := newFakeAPI(t, translateOK)
 	configPath := writeProject(t, fake.server.URL, projectSetup{
 		languages: []string{"en"},
@@ -554,7 +816,7 @@ func TestGlossaryContextAndStyleReachAPI(t *testing.T) {
 		t.Fatalf("calls = %d", len(fake.calls))
 	}
 	req := fake.calls[0]
-	if req.Source != "ja" || req.Target != "en" || req.Style != "default" || req.Context != "menu" || req.MaxTokens != 64 {
+	if req.Source != "ja" || req.Target != "en" || req.Style != "" || req.Context != "menu" || req.MaxTokens != 64 {
 		t.Fatalf("unexpected request: %#v", req)
 	}
 	if len(req.Glossary) != 2 {
