@@ -1,5 +1,7 @@
 # game-l10n-updater
 
+日本語 | [English](README.en.md)
+
 ゲームの文章を翻訳するCLIです。原文を追加・変更した箇所だけをローカルの翻訳APIに送り、`targets/<locale>.json` と状態ファイルを更新します。手動で修正した訳文は保持し、原文も変わった箇所は `needs_review` として報告します。
 
 翻訳APIは別プロジェクトの [local-jp-translate](https://github.com/marvelousu/local-jp-translate) を使います。Godot向けに、訳文がボタンやラベルに収まるか確認するアドオンとサンプルも含みます。

@@ -37,7 +37,7 @@ mkdir -p "$STAGE/$NAME"
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
     go build -trimpath -buildvcs=false -ldflags "-s -w" -o "$STAGE/$NAME/gamel10n" ./cmd/gamel10n
 
-cp README.md LICENSE THIRD_PARTY_NOTICES.md "$STAGE/$NAME/"
+cp README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md "$STAGE/$NAME/"
 for tree in docs examples godot LICENSES; do
   if [ -d "$tree" ]; then
     tar --exclude='.godot' --exclude='*.import' --exclude='*.translation' --exclude='*.uid' -cf - "$tree" | tar -xf - -C "$STAGE/$NAME"

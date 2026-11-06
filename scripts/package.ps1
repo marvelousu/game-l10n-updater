@@ -22,7 +22,7 @@ try {
             $taskExt = if ($env:GOOS -eq 'windows') { '.exe' } else { '' }
             & $Go build -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $taskBundle ('gamel10n' + $taskExt)) ./cmd/gamel10n
             if ($LASTEXITCODE -ne 0) { throw "Build failed for $taskTarget" }
-            Copy-Item -LiteralPath README.md,LICENSE,THIRD_PARTY_NOTICES.md -Destination $taskBundle
+            Copy-Item -LiteralPath README.md,README.en.md,LICENSE,THIRD_PARTY_NOTICES.md -Destination $taskBundle
             foreach ($taskTree in @('docs','examples','godot','LICENSES')) {
                 if (-not (Test-Path -LiteralPath $taskTree)) { continue }
                 foreach ($taskFile in Get-ChildItem -LiteralPath $taskTree -Recurse -File) {
