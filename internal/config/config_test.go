@@ -76,11 +76,44 @@ func TestLoadFillsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Config.API.TimeoutSeconds != 120 || loaded.Config.API.MaxTokens != 512 {
+	if loaded.Config.API.TimeoutSeconds != DefaultTimeoutSeconds || DefaultTimeoutSeconds != 210 || loaded.Config.API.MaxTokens != 512 {
 		t.Fatalf("defaults not applied: %#v", loaded.Config.API)
 	}
 	if loaded.Config.Source.Language != "ja" {
 		t.Fatalf("unexpected config: %#v", loaded.Config)
+	}
+}
+
+func TestLoadPreservesExplicitShorterTimeout(t *testing.T) {
+	cfg := Default("ja", []string{"en"})
+	cfg.API.TimeoutSeconds = 45
+	data, err := Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(writeConfig(t, string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Config.API.TimeoutSeconds != 45 {
+		t.Fatalf("explicit timeout = %d, want 45", loaded.Config.API.TimeoutSeconds)
+	}
+}
+
+func TestValidateStyle(t *testing.T) {
+	for _, style := range []string{"", "default", "polite", "plain", " polite "} {
+		cfg := Default("ja", []string{"en"})
+		cfg.API.Style = style
+		if err := Validate(cfg); err != nil {
+			t.Errorf("style %q rejected: %v", style, err)
+		}
+	}
+	for _, style := range []string{"casual", "formal"} {
+		cfg := Default("ja", []string{"en"})
+		cfg.API.Style = style
+		if err := Validate(cfg); err == nil {
+			t.Errorf("style %q accepted", style)
+		}
 	}
 }
 

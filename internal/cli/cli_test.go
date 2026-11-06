@@ -2,14 +2,18 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/marvelousu/game-l10n-updater/internal/catalog"
 	"github.com/marvelousu/game-l10n-updater/internal/config"
@@ -26,6 +30,16 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	var stdout, stderr bytes.Buffer
 	code := Run(args, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
+}
+
+func writeLanguages(t *testing.T, w http.ResponseWriter, codes ...string) {
+	t.Helper()
+	items := make([]map[string]string, 0, len(codes))
+	for _, code := range codes {
+		items = append(items, map[string]string{"code": code})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"languages": items})
 }
 
 func writeCLIFile(t *testing.T, path string, data []byte) {
@@ -200,6 +214,10 @@ func TestSyncThroughCLIWithFakeAPIAndNoRepeatCalls(t *testing.T) {
 	var mu sync.Mutex
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			writeLanguages(t, w, "ja", "en")
+			return
+		}
 		mu.Lock()
 		calls++
 		mu.Unlock()
@@ -257,6 +275,10 @@ func TestSyncThroughCLIWithFakeAPIAndNoRepeatCalls(t *testing.T) {
 
 func TestSyncFailureWritesSeparateReportAndPreservesFiles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			writeLanguages(t, w, "ja", "en")
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"error":{"code":"backend","message":"boom"}}`))
 	}))
@@ -362,6 +384,206 @@ func TestApproveAndLockPreserveTarget(t *testing.T) {
 	_ = json.Unmarshal(stateData, &st)
 	if st.Files["en"].Entries["k"].Locked {
 		t.Fatal("unlock did not clear locked")
+	}
+}
+
+func writeCustomCLIProject(t *testing.T, cfg model.Config, source []model.SourceEntry, targets map[string]map[string]string, st *model.State) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgData, err := config.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCLIFile(t, filepath.Join(dir, "gamel10n.json"), cfgData)
+	catData, err := catalog.Marshal(&model.SourceCatalog{SchemaVersion: 1, Entries: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCLIFile(t, filepath.Join(dir, "source", "catalog.json"), catData)
+	for _, locale := range cfg.Languages {
+		values := targets[locale]
+		if values == nil {
+			values = map[string]string{}
+		}
+		targetData, err := target.Marshal(values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCLIFile(t, filepath.Join(dir, "targets", locale+".json"), targetData)
+	}
+	if st != nil {
+		stateData, err := state.Marshal(st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCLIFile(t, filepath.Join(dir, "state", "gamel10n-state.json"), stateData)
+	}
+	return dir, filepath.Join(dir, "gamel10n.json")
+}
+
+func TestSyncRejectsUnsupportedLanguageBeforeTranslate(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			writeLanguages(t, w, "ja", "en")
+			return
+		}
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"translated_text":"x"}`))
+	}))
+	defer server.Close()
+	cfg := config.Default("ja", []string{"en", "pt-BR"})
+	cfg.API.URL = server.URL
+	dir, configPath := writeCustomCLIProject(t, cfg, []model.SourceEntry{{Key: "a", Text: "A"}},
+		map[string]map[string]string{"en": {}, "pt-BR": {}}, model.NewState())
+	statePath := filepath.Join(dir, "state", "gamel10n-state.json")
+	beforeState, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "sync", "-config", configPath)
+	if code != exitError {
+		t.Fatalf("sync exit = %d, stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, `"pt-BR"`) || !strings.Contains(stderr, `"pt-br"`) {
+		t.Fatalf("error lacks configured and canonical locale: %s", stderr)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("translation called %d time(s) before language check", calls.Load())
+	}
+	if after, err := os.ReadFile(statePath); err != nil || !bytes.Equal(after, beforeState) {
+		t.Fatalf("state changed after language rejection: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+}
+
+func TestSyncKeepsLocaleFileNameAndSendsCanonicalCode(t *testing.T) {
+	var got translate.Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			writeLanguages(t, w, "ja", "zh-hant")
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"translated_text":"ZH:A"}`))
+	}))
+	defer server.Close()
+	cfg := config.Default("ja", []string{"zh_TW"})
+	cfg.API.URL = server.URL
+	cfg.API.Style = "polite"
+	dir, configPath := writeCustomCLIProject(t, cfg, []model.SourceEntry{{Key: "a", Text: "A"}},
+		map[string]map[string]string{"zh_TW": {}}, model.NewState())
+	code, _, stderr := runCLI(t, "sync", "-config", configPath)
+	if code != exitOK {
+		t.Fatalf("sync exit = %d, stderr=%s", code, stderr)
+	}
+	if got.Target != "zh-hant" || got.Style != "" {
+		t.Fatalf("unexpected wire request: %#v", got)
+	}
+	targetPath := filepath.Join(dir, "targets", "zh_TW.json")
+	targetData, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("locale file name was not preserved: %v", err)
+	}
+	if !strings.Contains(string(targetData), "ZH:A") {
+		t.Fatalf("translation missing: %s", targetData)
+	}
+	stored := readCLIState(t, filepath.Join(dir, "state", "gamel10n-state.json"))
+	if stored.Files["zh_TW"] == nil {
+		t.Fatalf("state locale key was not preserved: %#v", stored.Files)
+	}
+}
+
+func readCLIState(t *testing.T, path string) *model.State {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := state.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func TestRunContextCancellationLeavesTargetStateAndLock(t *testing.T) {
+	var stalled atomic.Bool
+	stalled.Store(true)
+	started := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/languages" {
+			writeLanguages(t, w, "ja", "en")
+			return
+		}
+		if stalled.Load() {
+			_, _ = io.Copy(io.Discard, r.Body)
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		var req translate.Request
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		body, _ := json.Marshal(map[string]string{"translated_text": "EN:" + req.Text})
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	cfg := config.Default("ja", []string{"en"})
+	cfg.API.URL = server.URL
+	dir, configPath := writeCustomCLIProject(t, cfg, []model.SourceEntry{{Key: "a", Text: "A"}},
+		map[string]map[string]string{"en": {}}, model.NewState())
+	targetPath := filepath.Join(dir, "targets", "en.json")
+	statePath := filepath.Join(dir, "state", "gamel10n-state.json")
+	targetBefore, _ := os.ReadFile(targetPath)
+	stateBefore, _ := os.ReadFile(statePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan int, 1)
+	var stdout, stderr bytes.Buffer
+	go func() {
+		done <- RunContext(ctx, []string{"sync", "-config", configPath}, &stdout, &stderr)
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("translation did not start")
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != exitError {
+			t.Fatalf("canceled sync exit = %d, stderr=%s", code, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled sync did not return")
+	}
+	if after, _ := os.ReadFile(targetPath); string(after) != string(targetBefore) {
+		t.Fatal("target changed after cancellation")
+	}
+	if after, _ := os.ReadFile(statePath); string(after) != string(stateBefore) {
+		t.Fatal("state changed after cancellation")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gamel10n.lock")); !os.IsNotExist(err) {
+		t.Fatal("lock was not released")
+	}
+
+	stalled.Store(false)
+	code, _, stderrText := runCLI(t, "sync", "-config", configPath)
+	if code != exitOK {
+		t.Fatalf("second sync exit = %d, stderr=%s", code, stderrText)
+	}
+	targetData, _ := os.ReadFile(targetPath)
+	if !strings.Contains(string(targetData), "EN:A") {
+		t.Fatalf("second sync did not translate: %s", targetData)
 	}
 }
 

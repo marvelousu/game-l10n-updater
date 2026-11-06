@@ -33,7 +33,7 @@ import (
 )
 
 // Version is the CLI release string.
-const Version = "0.2.1"
+const Version = "0.2.2"
 
 const (
 	exitOK         = 0
@@ -43,8 +43,18 @@ const (
 	exitDisplay    = 4
 )
 
-// Run executes one command and returns the process exit code.
+// Run executes one command with a background context and returns the process
+// exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
+	return RunContext(context.Background(), args, stdout, stderr)
+}
+
+// RunContext executes one command and returns the process exit code. The
+// context is passed to sync so Ctrl+C and SIGTERM abort before any commit.
+func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(args) == 0 {
 		usage(stderr)
 		return exitUsage
@@ -56,7 +66,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "plan":
 		return runPlan(rest, stdout, stderr)
 	case "sync":
-		return runSync(rest, stdout, stderr)
+		return runSync(ctx, rest, stdout, stderr)
 	case "check":
 		return runCheck(rest, stdout, stderr)
 	case "export":
@@ -326,7 +336,7 @@ func writeJSON(path string, value any, stdout io.Writer) (bool, error) {
 	return false, nil
 }
 
-func runSync(args []string, stdout, stderr io.Writer) int {
+func runSync(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("sync", stderr, "gamel10n sync [-config PATH] [-report PATH] [-prune-deleted]")
 	configPath := fs.String("config", "gamel10n.json", "project config path")
 	reportPath := fs.String("report", "", "write the JSON sync report to this path (use - for stdout)")
@@ -349,7 +359,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	if !stdoutReport {
 		opts.ReportPath = *reportPath
 	}
-	report, runErr := syncer.Run(context.Background(), *configPath, client, opts)
+	report, runErr := syncer.Run(ctx, *configPath, client, opts)
 	if runErr != nil {
 		failurePath := *reportPath
 		if failurePath == "" {

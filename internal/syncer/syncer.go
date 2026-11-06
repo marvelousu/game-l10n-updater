@@ -4,6 +4,7 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,13 @@ import (
 // Translator is the API surface used by sync.
 type Translator interface {
 	Translate(ctx context.Context, req translate.Request) (string, error)
+}
+
+// LanguageChecker is an optional capability implemented by the concrete API
+// client. Sync checks the locales needing translation in this run before any
+// inference. Injected test translators do not need to implement it.
+type LanguageChecker interface {
+	SupportedLanguages(ctx context.Context) ([]string, error)
 }
 
 // Options controls one sync.
@@ -97,8 +105,10 @@ func Run(ctx context.Context, configPath string, api Translator, opts Options) (
 		return nil, err
 	}
 	defer func() {
-		if releaseErr := lock.Release(); releaseErr != nil && runErr == nil {
-			runErr = releaseErr
+		if releaseErr := lock.Release(); releaseErr != nil {
+			runErr = errors.Join(runErr, releaseErr)
+			report.Error = runErr.Error()
+			report, runErr = finish(report, opts, runErr)
 		}
 	}()
 
@@ -122,9 +132,31 @@ func Run(ctx context.Context, configPath string, api Translator, opts Options) (
 }
 
 func runOnProject(ctx context.Context, p *project.Project, api Translator, opts Options, report *Report) (*Report, error) {
+	if err := cancelError(ctx); err != nil {
+		return failSync(report, opts, err)
+	}
 	planned := plan.Build(p.Source, p.Targets, p.State, p.Config.Languages)
 	report.Actions = actionLines(planned.Decisions)
 	report.Counts = countsMap(planned.Counts)
+
+	if planned.APIRequests > 0 {
+		if checker, ok := api.(LanguageChecker); ok {
+			needed := map[string]bool{}
+			for _, decision := range planned.Decisions {
+				if decision.Action == plan.ActionNew || decision.Action == plan.ActionChanged {
+					needed[decision.Locale] = true
+				}
+			}
+			locales := make([]string, 0, len(needed))
+			for locale := range needed {
+				locales = append(locales, locale)
+			}
+			sort.Strings(locales)
+			if err := checkLanguages(ctx, checker, p.Config.Source.Language, locales); err != nil {
+				return failSync(report, opts, err)
+			}
+		}
+	}
 
 	newTargets := cloneTargets(p.Targets)
 	newState := state.Clone(p.State)
@@ -133,17 +165,23 @@ func runOnProject(ctx context.Context, p *project.Project, api Translator, opts 
 	for _, decision := range planned.Decisions {
 		switch decision.Action {
 		case plan.ActionNew, plan.ActionChanged:
+			if err := cancelError(ctx); err != nil {
+				return failSync(report, opts, err)
+			}
 			report.APICalls++
 			translated, err := api.Translate(ctx, translate.Request{
 				Text:      decision.Entry.Text,
 				Source:    p.Config.Source.Language,
 				Target:    decision.Locale,
-				Style:     p.Config.API.Style,
+				Style:     styleFor(p.Config.API.Style, decision.Locale),
 				Glossary:  glossaryFor(p.Config.Glossary, decision.Locale),
 				Context:   decision.Entry.Context,
 				MaxTokens: p.Config.API.MaxTokens,
 			})
 			if err != nil {
+				if ctxErr := cancelError(ctx); ctxErr != nil {
+					return failSync(report, opts, ctxErr)
+				}
 				report.Status = "failed"
 				report.Error = fmt.Sprintf("translate %s/%s: %v", decision.Locale, decision.Key, err)
 				return finish(report, opts, fmt.Errorf("%s", report.Error))
@@ -159,6 +197,7 @@ func runOnProject(ctx context.Context, p *project.Project, api Translator, opts 
 			}
 			if issue := validate.MaxLengthIssue(decision.Entry, translated, decision.Locale); issue != nil {
 				warnings = append(warnings, *issue)
+				report.Warnings = warnings
 			}
 			newTargets[decision.Locale][decision.Key] = translated
 			es := newState.Locale(decision.Locale).Entries[decision.Key]
@@ -219,6 +258,12 @@ func runOnProject(ctx context.Context, p *project.Project, api Translator, opts 
 		}
 	}
 	report.Warnings = warnings
+
+	// Cancellation aborts before the transaction starts, including runs that
+	// only need to record state. Commit itself is not interrupted midflight.
+	if err := cancelError(ctx); err != nil {
+		return failSync(report, opts, err)
+	}
 
 	// Validate output structure before any write.
 	for _, locale := range p.Config.Languages {
@@ -300,6 +345,53 @@ func runOnProject(ctx context.Context, p *project.Project, api Translator, opts 
 		report.Translations[i].Applied = true
 	}
 	return finish(report, opts, nil)
+}
+
+func cancelError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("sync canceled: %w", err)
+	}
+	return nil
+}
+
+func failSync(report *Report, opts Options, err error) (*Report, error) {
+	report.Status = "failed"
+	report.Error = err.Error()
+	return finish(report, opts, err)
+}
+
+func checkLanguages(ctx context.Context, checker LanguageChecker, sourceLanguage string, targets []string) error {
+	supported, err := checker.SupportedLanguages(ctx)
+	if err != nil {
+		if ctxErr := cancelError(ctx); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("check translation API languages: %w", err)
+	}
+	set := map[string]bool{}
+	for _, code := range supported {
+		set[translate.CanonicalLanguage(code)] = true
+	}
+	source := translate.CanonicalLanguage(sourceLanguage)
+	if !set[source] {
+		return fmt.Errorf("configured source language %q is not supported by the translation API (canonical %q)", sourceLanguage, source)
+	}
+	for _, locale := range targets {
+		canonical := translate.CanonicalLanguage(locale)
+		if !set[canonical] {
+			return fmt.Errorf("configured target language %q is not supported by the translation API (canonical %q)", locale, canonical)
+		}
+	}
+	return nil
+}
+
+// styleFor sends a configured style only when the API target is Japanese.
+// Other targets omit it from the wire request.
+func styleFor(style, locale string) string {
+	if style == "" || translate.CanonicalLanguage(locale) != "ja" {
+		return ""
+	}
+	return style
 }
 
 func finish(report *Report, opts Options, runErr error) (*Report, error) {

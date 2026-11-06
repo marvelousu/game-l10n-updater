@@ -21,7 +21,7 @@
   "api": {
     "url": "http://127.0.0.1:8787",
     "style": "",
-    "timeout_seconds": 120,
+    "timeout_seconds": 210,
     "max_tokens": 512
   },
   "glossary": [
@@ -39,14 +39,16 @@
 | `targets.state` | はい | 状態ファイル。相対パス |
 | `languages` | はい | ターゲット言語コードの配列。重複と原文言語の混入は不可 |
 | `api.url` | はい | `http://localhost:8787`、`http://127.0.0.1:8787`、`http://[::1]:8787` などのループバックのみ |
-| `api.style` | いいえ | API に送る `style`。空文字はそのまま送る。値の解釈は local-jp-translate に従う |
-| `api.timeout_seconds` | いいえ | 0 または省略時は 120。1〜3600 |
+| `api.style` | いいえ | `default` / `polite` / `plain`（空も可）。ターゲットが `ja` のときだけ API に送り、それ以外では送らない |
+| `api.timeout_seconds` | いいえ | 0 または省略時は 210。1〜3600。サーバー側の既定は 180 秒 |
 | `api.max_tokens` | いいえ | 0 または省略時は 512。負数は不可 |
-| `glossary` | いいえ | `source`/`target` は必須。`locale` が空なら全ロケール、指定時はそのロケールだけ |
+| `glossary` | いいえ | `source`/`target` は必須。`locale` が空なら全ロケール、指定時は設定したロケール名と完全一致するものだけ |
 
 言語コードはファイル名に使える `[A-Za-z0-9][A-Za-z0-9_-]*`（最大 64）です。
-local-jp-translate の PLaMo 言語コードに合わせる場合は `zh-hans`、`zh-hant` の
-ように小文字ハイフンを使います。
+ロケール名と `targets/<locale>.json` のファイル名は設定した表記のまま保持します。
+API へ送るときだけ小文字化し、`_` を `-` に直します。`zh-cn` / `zh-sg` は
+`zh-hans`、`zh-tw` / `zh-hk` は `zh-hant` として送ります。`pt-BR` のような
+その他の地域付きコードは変換しません。
 
 `targets.directory` 内のファイル名は `<locale>.json` に固定です。ロケールは
 検証済みなので `../` などでプロジェクト外に出ることはありません。
@@ -319,7 +321,6 @@ local-jp-translate の PLaMo 言語コードに合わせる場合は `zh-hans`�
   "text": "こんにちは、{name}さん！",
   "source": "ja",
   "target": "en",
-  "style": "",
   "glossary": [
     { "source": "ポーション", "target": "Potion" }
   ],
@@ -328,8 +329,13 @@ local-jp-translate の PLaMo 言語コードに合わせる場合は `zh-hans`�
 }
 ```
 
-すべてのフィールドを送ります。`glossary` は該当ロケール + 全ロケール共通の
-用語だけを配列で送ります（該当なしは `[]`）。
+`style` はターゲットが `ja` で設定値があるときだけ含めます。`glossary` は
+該当ロケール + 全ロケール共通の用語だけを配列で送ります（該当なしは `[]`）。
+`source` と `target` は上記の規則で API 用の表記に正規化します。
+
+`sync` は翻訳が必要なとき、最初に `GET /languages` を1回呼びます。設定した
+原文言語と今回翻訳するターゲット言語が API の一覧にない場合は、翻訳を始める前にエラーにします。
+`plan` はこの確認も API 呼び出しも行いません。
 
 成功レスポンス（HTTP 2xx）:
 

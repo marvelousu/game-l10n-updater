@@ -15,7 +15,7 @@
   "api": {
     "url": "http://127.0.0.1:8787",
     "style": "",
-    "timeout_seconds": 120,
+    "timeout_seconds": 210,
     "max_tokens": 512
   },
   "glossary": [

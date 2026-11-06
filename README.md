@@ -171,6 +171,8 @@ plan: new=0 changed=1 unchanged=1 deleted=0 needs_review=0 api_requests=1
 .\gamel10n.exe unlock -config my-game-l10n\gamel10n.json -locale en -key ui.greet
 ```
 
+プレースホルダー検査に通らない訳文が1件でもあると、`sync` は翻訳データと状態を保存せずに終了します。該当キーの訳文を `targets/<locale>.json` に手動で記載し、`approve` でそのキーを承認してから再実行してください。承認した訳文は保持され、残りのキーが翻訳されます。
+
 CSVで確認・修正したい場合は `export` と `import-csv` も使えます。既存データへの取り込み、承認・固定、保存時の保護は [操作の詳細](docs/usage.md) にまとめています。
 
 ## Godotで表示を確認する
