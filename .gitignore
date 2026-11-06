@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/evidence/
+/.cache/
+**/.godot/
+*.log
+*.tmp
+.env
+.DS_Store

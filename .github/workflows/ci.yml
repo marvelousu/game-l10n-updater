@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-amd64
+            os: windows-latest
+            goarch: amd64
+          - name: linux-amd64
+            os: ubuntu-latest
+            goarch: amd64
+          - name: macOS-arm64
+            os: macos-15
+            goarch: arm64
+    env:
+      CGO_ENABLED: "0"
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: true
+
+      - name: gofmt
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: compile
+        run: go build ./...
+
+      - name: package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package.ps1
+
+      - name: package (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh ./scripts/package.sh
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamel10n-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error

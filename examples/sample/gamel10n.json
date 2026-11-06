@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "source": {
+    "language": "ja",
+    "path": "source/catalog.json"
+  },
+  "targets": {
+    "directory": "targets",
+    "state": "state/gamel10n-state.json"
+  },
+  "languages": [
+    "en",
+    "zh-hans"
+  ],
+  "api": {
+    "url": "http://127.0.0.1:8787",
+    "style": "",
+    "timeout_seconds": 120,
+    "max_tokens": 512
+  },
+  "glossary": [
+    {
+      "source": "ポーション",
+      "target": "Potion",
+      "locale": "en"
+    }
+  ]
+}

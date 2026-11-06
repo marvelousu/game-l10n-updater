@@ -1,0 +1,8 @@
+{
+  "demo.title": "Localization Display Check",
+  "demo.intro": "This demo applies sample translations to opted-in Label and Button nodes, waits for layout, then measures the real theme font and Control rect.",
+  "demo.body": "Everyday save completed.",
+  "demo.wrapped_note": "This note is wrapped by the Label. It has enough height in both sample languages, so it should pass without a clipping report.",
+  "demo.safe_action": "Save",
+  "demo.tight_action": "Continue"
+}

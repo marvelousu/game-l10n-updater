@@ -1,0 +1,9 @@
+{
+  "item.potion": "获得了一个药水。",
+  "ui.damage": "伤害: %d",
+  "ui.danger": "[color=red]危险[/color]",
+  "ui.greet": "你好，{name}！",
+  "ui.quit": "退出",
+  "ui.save": "<b>重要</b> 要覆盖存档吗？",
+  "ui.start": "开始"
+}

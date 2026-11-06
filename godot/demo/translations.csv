@@ -1,0 +1,7 @@
+keys,en,ja
+demo.title,Localization Display Check,ローカライズ表示チェック
+demo.intro,"This demo applies sample translations to opted-in Label and Button nodes, waits for layout, then measures the real theme font and Control rect.","このデモはメタデータで指定した Label と Button にサンプル翻訳を適用し、レイアウト後に実際のテーマフォントと Control の矩形で測定します。"
+demo.body,Everyday save completed.,日常のセーブが完了しました。
+demo.wrapped_note,"This note is wrapped by the Label. It has enough height in both sample languages, so it should pass without a clipping report.","このメモは Label の自動折り返しで表示されます。両方のサンプル言語で十分な高さがあるため、クリップ報告は出ないはずです。"
+demo.safe_action,Save,保存
+demo.tight_action,Continue,このまま続行して保存する

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "key": "item.potion",
+      "text": "ポーションを1個手に入れた。",
+      "context": "item pickup message",
+      "max_length": 32
+    },
+    {
+      "key": "ui.damage",
+      "text": "ダメージ: %d",
+      "context": "battle damage popup",
+      "max_length": 16
+    },
+    {
+      "key": "ui.danger",
+      "text": "[color=red]危険[/color]",
+      "context": "warning label",
+      "max_length": 28
+    },
+    {
+      "key": "ui.greet",
+      "text": "こんにちは、{name}さん！",
+      "context": "title screen greeting",
+      "max_length": 24
+    },
+    {
+      "key": "ui.new_feature",
+      "text": "新機能",
+      "context": "title menu, added in the next build",
+      "max_length": 12
+    },
+    {
+      "key": "ui.quit",
+      "text": "終了",
+      "context": "title menu"
+    },
+    {
+      "key": "ui.save",
+      "text": "<b>重要</b> セーブデータを上書きしますか？",
+      "context": "save overwrite dialog",
+      "max_length": 48
+    },
+    {
+      "key": "ui.start",
+      "text": "はじめから",
+      "context": "title menu"
+    }
+  ]
+}

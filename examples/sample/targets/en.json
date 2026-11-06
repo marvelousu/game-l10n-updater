@@ -1,0 +1,9 @@
+{
+  "item.potion": "You got a potion.",
+  "ui.damage": "Damage: %d",
+  "ui.danger": "[color=red]Danger[/color]",
+  "ui.greet": "Hello, {name}!",
+  "ui.quit": "Quit",
+  "ui.save": "<b>Important</b> Overwrite the save data?",
+  "ui.start": "Start"
+}

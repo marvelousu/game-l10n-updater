@@ -1,0 +1,5 @@
+# Godot import/runtime generated data
+.godot/
+*.import
+*.translation
+*.uid
