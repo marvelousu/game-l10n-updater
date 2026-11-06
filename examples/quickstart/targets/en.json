@@ -1,0 +1,6 @@
+{
+  "menu.new_game": "New Game",
+  "menu.quit": "Quit",
+  "ui.greet": "Hello, {name}!",
+  "ui.potion": "You got a potion."
+}
